@@ -1,0 +1,15 @@
+# env
+.env
+
+# build
+bin/
+*.exe
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# test
+*.out
+coverage.txt
