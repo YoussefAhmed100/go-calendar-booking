@@ -17,5 +17,20 @@ services:
       timeout: 3s
       retries: 5
 
+  api:
+    build: .
+    container_name: calendar_booking_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # inside the compose network the DB host is the service name
+      DB_HOST: db
+      DB_PORT: "5432"
+    ports:
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
