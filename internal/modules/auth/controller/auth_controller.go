@@ -45,3 +45,32 @@ func (c *AuthController) Register(ctx *gin.Context) {
 		"token": token,
 	})
 }
+
+// login handler 
+
+func (c *AuthController) Login(ctx *gin.Context) {
+	var req dto.LoginRequest
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid request",
+		})
+		return
+	}
+
+	user, token, err := c.authService.Login(
+		ctx.Request.Context(),
+		req,
+	)
+	if err != nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"user":  user,
+		"token": token,
+	})
+}

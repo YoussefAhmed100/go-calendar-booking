@@ -28,6 +28,11 @@ func NewAuthService(
 	}
 }
 
+
+
+// Register handles user registration. It creates a new user in the database and
+//  generates a JWT token for the user. The function takes a context and a RegisterRequest DTO as input
+//  and returns the created User, a JWT token, and an error if any occurred during the process.
 func (s *AuthService) Register(
 	ctx context.Context,
 	req dto.RegisterRequest,
@@ -88,8 +93,59 @@ func (s *AuthService) Register(
 
 	token, err := s.jwtService.GenerateToken(
 		user.ID.String(),
-		// هنحتاج session ID هنا
 		"",
+	)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return &user, token, nil
+}
+
+// Login handles user login. It verifies the user's credentials, creates a new session in the database,
+
+func (s *AuthService) Login(
+	ctx context.Context,
+	req dto.LoginRequest,
+) (*model.User, string, error) {
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+
+	var user model.User
+
+	err := s.db.WithContext(ctx).
+		Where("email = ?", email).
+		First(&user).
+		Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, "", errors.New("invalid email or password")
+	}
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	err = bcrypt.CompareHashAndPassword(
+		[]byte(user.PasswordHash),
+		[]byte(req.Password),
+	)
+	if err != nil {
+		return nil, "", errors.New("invalid email or password")
+	}
+
+	session := model.Session{
+		ID:        uuid.New(),
+		UserID:    user.ID,
+		ExpiresAt: s.jwtService.Expiry(),
+	}
+
+	if err := s.db.WithContext(ctx).Create(&session).Error; err != nil {
+		return nil, "", err
+	}
+
+	token, err := s.jwtService.GenerateToken(
+		user.ID.String(),
+		session.ID.String(),
 	)
 	if err != nil {
 		return nil, "", err

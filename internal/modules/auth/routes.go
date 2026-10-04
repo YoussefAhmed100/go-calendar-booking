@@ -16,4 +16,9 @@ func registerRoutes(
 		"/register",
 		authController.Register,
 	)
+
+		authRoutes.POST(
+		"/login",
+		authController.Login,
+	)
 }
