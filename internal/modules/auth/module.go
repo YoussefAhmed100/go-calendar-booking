@@ -4,16 +4,35 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"calendar-booking/internal/common/config"
+	"calendar-booking/internal/modules/auth/controller"
 	"calendar-booking/internal/modules/auth/model"
+	"calendar-booking/internal/modules/auth/service"
 )
 
 type Module struct {
-	db *gorm.DB
+	db             *gorm.DB
+	authController *controller.AuthController
 }
 
-func New(db *gorm.DB) *Module {
+func New(db *gorm.DB, cfg *config.Config) *Module {
+	jwtService := service.NewJWTService(
+		cfg.JWTSecret,
+		cfg.JWTExpiryHours,
+	)
+
+	authService := service.NewAuthService(
+		db,
+		jwtService,
+	)
+
+	authController := controller.NewAuthController(
+		authService,
+	)
+
 	return &Module{
-		db: db,
+		db:             db,
+		authController: authController,
 	}
 }
 
@@ -23,6 +42,7 @@ func (m *Module) Migrate() error {
 		&model.Session{},
 	)
 }
+
 func (m *Module) RegisterRoutes(router *gin.RouterGroup) {
-	// Auth routes will be registered in a later step.
+	registerRoutes(router, m.authController)
 }

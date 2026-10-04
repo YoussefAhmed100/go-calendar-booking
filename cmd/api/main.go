@@ -2,92 +2,97 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"calendar-booking/internal/common/config"
 	"calendar-booking/internal/common/database"
-	"calendar-booking/internal/common/response"
 	"calendar-booking/internal/common/validator"
 	"calendar-booking/internal/modules/auth"
-
-	"github.com/gin-gonic/gin"
 )
-
-// TEMPORARY: only to verify validation works. Removed in Step 3.
-type pingRequest struct {
-	Name  string `json:"name" binding:"required,min=3,max=50"`
-	Email string `json:"email" binding:"required,email"`
-}
 
 func main() {
 	cfg := config.Load()
+
+	// Database
 	db := database.Connect(cfg)
 
-	authModule := auth.New(db)
-
-	if err := authModule.Migrate(); err != nil {
-		log.Fatalf("failed to migrate auth module: %v", err)
-	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		log.Fatalf("failed to get sql.DB: %v", err)
-	}
-	defer sqlDB.Close()
-
+	// Validator
 	validator.Setup()
 
-	r := gin.Default()
-	// Needed later so rate limiting by client IP can't be spoofed via headers.
-	_ = r.SetTrustedProxies(nil)
+	// Auth module
+	authModule := auth.New(db, cfg)
 
-	r.GET("/health", func(c *gin.Context) {
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
-		defer cancel()
-
-		if err := sqlDB.PingContext(ctx); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unhealthy", "db": "down"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "db": "up"})
-	})
-
-	r.POST("/api/ping", func(c *gin.Context) {
-		var req pingRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			response.BindError(c, err)
-			return
-		}
-		response.JSON(c, http.StatusOK, gin.H{"message": "pong", "name": req.Name})
-	})
-
-	srv := &http.Server{
-		Addr:              ":" + cfg.AppPort,
-		Handler:           r,
-		ReadHeaderTimeout: 5 * time.Second,
+	if err := authModule.Migrate(); err != nil {
+		log.Fatalf("auth module migration failed: %v", err)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	// HTTP router
+	router := gin.New()
 
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+
+	// Health check
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+		})
+	})
+
+	// API routes
+	api := router.Group("/api")
+
+	authModule.RegisterRoutes(api)
+
+	// HTTP server
+	server := &http.Server{
+		Addr:              ":" + cfg.AppPort,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	// Start server
 	go func() {
-		log.Printf("server running on :%s", cfg.AppPort)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("server starting on :%s", cfg.AppPort)
+
+		if err := server.ListenAndServe(); err != nil &&
+			err != http.ErrServerClosed {
 			log.Fatalf("server failed: %v", err)
 		}
 	}()
 
-	<-ctx.Done()
-	log.Println("shutting down...")
+	// Graceful shutdown
+	stop := make(chan os.Signal, 1)
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	signal.Notify(
+		stop,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	)
+
+	<-stop
+
+	log.Println("shutting down server...")
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		5*time.Second,
+	)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("forced shutdown: %v", err)
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("server shutdown failed: %v", err)
 	}
+
+	log.Println("server stopped")
 }

@@ -8,15 +8,19 @@ import (
 )
 
 type JWTService struct {
-	secret     []byte
-	expiryHour time.Duration
+	secret []byte
+	expiry time.Duration
 }
 
 func NewJWTService(secret string, expiryHours int) *JWTService {
 	return &JWTService{
-		secret:     []byte(secret),
-		expiryHour: time.Duration(expiryHours) * time.Hour,
+		secret: []byte(secret),
+		expiry: time.Duration(expiryHours) * time.Hour,
 	}
+}
+
+func (s *JWTService) Expiry() time.Time {
+	return time.Now().Add(s.expiry)
 }
 
 func (s *JWTService) GenerateToken(userID string, sessionID string) (string, error) {
@@ -26,7 +30,7 @@ func (s *JWTService) GenerateToken(userID string, sessionID string) (string, err
 		Subject:   userID,
 		ID:        sessionID,
 		IssuedAt:  jwt.NewNumericDate(now),
-		ExpiresAt: jwt.NewNumericDate(now.Add(s.expiryHour)),
+		ExpiresAt: jwt.NewNumericDate(now.Add(s.expiry)),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
