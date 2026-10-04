@@ -13,6 +13,7 @@ import (
 	"calendar-booking/internal/common/database"
 	"calendar-booking/internal/common/response"
 	"calendar-booking/internal/common/validator"
+	"calendar-booking/internal/modules/auth"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,6 +27,12 @@ type pingRequest struct {
 func main() {
 	cfg := config.Load()
 	db := database.Connect(cfg)
+
+	authModule := auth.New(db)
+
+	if err := authModule.Migrate(); err != nil {
+		log.Fatalf("failed to migrate auth module: %v", err)
+	}
 
 	sqlDB, err := db.DB()
 	if err != nil {
