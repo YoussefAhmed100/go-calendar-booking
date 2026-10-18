@@ -31,6 +31,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
+    develop:
+      watch:
+        - action: rebuild
+          path: .
+          ignore:
+            - .git/
+            - .env
+            - tmp/
+            - vendor/
+            - "*.md"
 volumes:
   pgdata:

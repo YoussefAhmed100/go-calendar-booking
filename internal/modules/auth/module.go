@@ -6,13 +6,15 @@ import (
 
 	"calendar-booking/internal/common/config"
 	"calendar-booking/internal/modules/auth/controller"
+	"calendar-booking/internal/modules/auth/middleware"
 	"calendar-booking/internal/modules/auth/model"
 	"calendar-booking/internal/modules/auth/service"
 )
 
 type Module struct {
-	db             *gorm.DB
-	authController *controller.AuthController
+	db                       *gorm.DB
+	authController           *controller.AuthController
+	authenticationMiddleware *middleware.AuthenticationMiddleware
 }
 
 func New(db *gorm.DB, cfg *config.Config) *Module {
@@ -26,13 +28,19 @@ func New(db *gorm.DB, cfg *config.Config) *Module {
 		jwtService,
 	)
 
+	authenticationMiddleware := middleware.NewAuthenticationMiddleware(
+		db,
+		jwtService,
+	)
+
 	authController := controller.NewAuthController(
 		authService,
 	)
 
 	return &Module{
-		db:             db,
-		authController: authController,
+		db:                       db,
+		authController:           authController,
+		authenticationMiddleware: authenticationMiddleware,
 	}
 }
 
@@ -44,5 +52,9 @@ func (m *Module) Migrate() error {
 }
 
 func (m *Module) RegisterRoutes(router *gin.RouterGroup) {
-	registerRoutes(router, m.authController)
+	registerRoutes(
+		router,
+		m.authController,
+		m.authenticationMiddleware,
+	)
 }

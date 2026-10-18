@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
+	
 
 	"calendar-booking/internal/modules/auth/dto"
 	"calendar-booking/internal/modules/auth/model"
@@ -49,7 +51,7 @@ func (s *AuthService) Register(
 			First(&existingUser).Error
 
 		if err == nil {
-			return errors.New("email already exists")
+			return errors.New("email already in use")
 		}
 
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -152,4 +154,35 @@ func (s *AuthService) Login(
 	}
 
 	return &user, token, nil
+}
+
+// Logout handles user logout. It revokes the user's session in the database, effectively logging them out.
+func (service *AuthService) Logout(
+	ctx context.Context,
+	sessionID string,
+) error {
+	sessionUUID, err := uuid.Parse(sessionID)
+	if err != nil {
+		return errors.New("invalid session")
+	}
+
+	logoutTime := time.Now().UTC()
+
+	result := service.db.WithContext(ctx).
+		Model(&model.Session{}).
+		Where(
+			"id = ? AND revoked_at IS NULL",
+			sessionUUID,
+		).
+		Update("revoked_at", logoutTime)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return errors.New("session not found or already logged out")
+	}
+
+	return nil
 }
