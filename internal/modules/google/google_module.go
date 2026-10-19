@@ -32,7 +32,10 @@ func New(
 }
 
 func (m *Module) Migrate() error {
-	return m.db.AutoMigrate(&model.OAuthState{})
+	return m.db.AutoMigrate(
+		&model.OAuthState{},
+		&model.GoogleAccount{},
+	)
 }
 
 func (m *Module) RegisterRoutes(router *gin.RouterGroup) {
