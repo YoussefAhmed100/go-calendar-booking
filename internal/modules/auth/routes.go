@@ -24,6 +24,13 @@ func registerRoutes(
 		authController.Login,
 	)
 
+	authRoutes.GET(
+    "/me",
+    authenticationMiddleware.RequireAuthentication(),
+    authController.GetCurrentUser,
+)
+
+
 	authRoutes.POST(
 		"/logout",
 		authenticationMiddleware.RequireAuthentication(),
