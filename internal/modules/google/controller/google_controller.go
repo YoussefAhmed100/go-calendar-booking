@@ -1,4 +1,3 @@
-
 package controller
 
 import (
@@ -56,3 +55,58 @@ func (controller *GoogleController) Connect(c *gin.Context) {
 	})
 }
 
+func (controller *GoogleController) Callback(context *gin.Context) {
+	if googleError := context.Query("error"); googleError != "" {
+		context.JSON(http.StatusBadRequest, gin.H{
+			"error": "Google authorization was denied or failed",
+		})
+		return
+	}
+
+	code := context.Query("code")
+	state := context.Query("state")
+
+	if code == "" || state == "" {
+		context.JSON(http.StatusBadRequest, gin.H{
+			"error": "missing OAuth code or state",
+		})
+		return
+	}
+
+	userID, err := controller.googleService.ConsumeOAuthState(
+		context.Request.Context(),
+		state,
+	)
+	if err != nil {
+		context.JSON(http.StatusBadRequest, gin.H{
+			"error": "invalid or expired OAuth state",
+		})
+		return
+	}
+
+	token, err := controller.googleService.ExchangeCode(
+		context.Request.Context(),
+		code,
+	)
+	if err != nil {
+		context.JSON(http.StatusBadGateway, gin.H{
+			"error": "failed to exchange Google authorization code",
+		})
+		return
+	}
+
+	if err := controller.googleService.SaveGoogleAccount(
+		context.Request.Context(),
+		userID,
+		token,
+	); err != nil {
+		context.JSON(http.StatusInternalServerError, gin.H{
+			"error": "failed to save Google account",
+		})
+		return
+	}
+
+	context.JSON(http.StatusOK, gin.H{
+		"message": "Google Calendar connected successfully",
+	})
+}

@@ -19,4 +19,9 @@ func registerRoutes(
 		authenticationMiddleware.RequireAuthentication(),
 		googleController.Connect,
 	)
+
+	googleRoutes.GET(
+		"/callback",
+		googleController.Callback,
+	)
 }
