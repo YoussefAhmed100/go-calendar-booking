@@ -58,3 +58,7 @@ func (m *Module) RegisterRoutes(router *gin.RouterGroup) {
 		m.authenticationMiddleware,
 	)
 }
+
+func (m *Module) AuthenticationMiddleware() *middleware.AuthenticationMiddleware {
+	return m.authenticationMiddleware
+}
