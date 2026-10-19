@@ -36,74 +36,72 @@ func NewAuthService(
 //  generates a JWT token for the user. The function takes a context and a RegisterRequest DTO as input
 //  and returns the created User, a JWT token, and an error if any occurred during the process.
 func (s *AuthService) Register(
-	ctx context.Context,
-	req dto.RegisterRequest,
+    ctx context.Context,
+    req dto.RegisterRequest,
 ) (*model.User, string, error) {
-	email := strings.ToLower(strings.TrimSpace(req.Email))
+    email := strings.ToLower(strings.TrimSpace(req.Email))
 
-	var user model.User
+    var user model.User
 
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existingUser model.User
+    session := model.Session{
+        ID:        uuid.New(),
+        ExpiresAt: s.jwtService.Expiry(),
+    }
 
-		err := tx.
-			Where("email = ?", email).
-			First(&existingUser).Error
+    err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+        var existingUser model.User
 
-		if err == nil {
-			return errors.New("email already in use")
-		}
+        err := tx.Where("email = ?", email).First(&existingUser).Error
 
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
+        if err == nil {
+            return errors.New("email already in use")
+        }
 
-		passwordHash, err := bcrypt.GenerateFromPassword(
-			[]byte(req.Password),
-			bcrypt.DefaultCost,
-		)
-		if err != nil {
-			return err
-		}
+        if !errors.Is(err, gorm.ErrRecordNotFound) {
+            return err
+        }
 
-		user = model.User{
-			ID:           uuid.New(),
-			Email:        email,
-			PasswordHash: string(passwordHash),
-		}
+        passwordHash, err := bcrypt.GenerateFromPassword(
+            []byte(req.Password),
+            bcrypt.DefaultCost,
+        )
+        if err != nil {
+            return err
+        }
 
-		if err := tx.Create(&user).Error; err != nil {
-			return err
-		}
+        user = model.User{
+            ID:           uuid.New(),
+            Email:        email,
+            PasswordHash: string(passwordHash),
+        }
 
-		session := &model.Session{
-			ID:        uuid.New(),
-			UserID:    user.ID,
-			ExpiresAt: s.jwtService.Expiry(),
-		}
+        if err := tx.Create(&user).Error; err != nil {
+            return err
+        }
 
-		if err := tx.Create(session).Error; err != nil {
-			return err
-		}
+        session.UserID = user.ID
 
-		return nil
-	})
+        if err := tx.Create(&session).Error; err != nil {
+            return err
+        }
 
-	if err != nil {
-		return nil, "", err
-	}
+        return nil
+    })
 
-	token, err := s.jwtService.GenerateToken(
-		user.ID.String(),
-		"",
-	)
-	if err != nil {
-		return nil, "", err
-	}
+    if err != nil {
+        return nil, "", err
+    }
 
-	return &user, token, nil
+    token, err := s.jwtService.GenerateToken(
+        user.ID.String(),
+        session.ID.String(),
+    )
+    if err != nil {
+        return nil, "", err
+    }
+
+    return &user, token, nil
 }
-
 // Login handles user login. It verifies the user's credentials, creates a new session in the database,
 
 func (s *AuthService) Login(
@@ -185,4 +183,29 @@ func (service *AuthService) Logout(
 	}
 
 	return nil
+}
+
+
+// GetCurrentUser retrieves a user by their authenticated user ID.
+func (s *AuthService) GetCurrentUser(
+    ctx context.Context,
+    userID string,
+) (*model.User, error) {
+    authenticatedUserID, err := uuid.Parse(userID)
+    if err != nil {
+        return nil, errors.New("invalid user ID")
+    }
+
+    var user model.User
+
+    err = s.db.WithContext(ctx).
+        Select("id", "email").
+        First(&user, "id = ?", authenticatedUserID).
+        Error
+
+    if err != nil {
+        return nil, err
+    }
+
+    return &user, nil
 }

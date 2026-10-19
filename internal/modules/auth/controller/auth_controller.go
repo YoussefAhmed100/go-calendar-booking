@@ -98,3 +98,32 @@ func (controller *AuthController) Logout(ctx *gin.Context) {
 		"message": "You have been logged out successfully.",
 	})
 }
+
+
+func (controller *AuthController) GetCurrentUser(ctx *gin.Context) {
+    authenticatedUserID, exists := commonmiddleware.GetAuthenticatedUserID(ctx)
+    if !exists {
+        ctx.JSON(http.StatusUnauthorized, gin.H{
+            "error": "Authentication required. Please log in.",
+        })
+        return
+    }
+
+    user, err := controller.authService.GetCurrentUser(
+        ctx.Request.Context(),
+        authenticatedUserID,
+    )
+    if err != nil {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": "Failed to retrieve user information.",
+        })
+        return
+    }
+
+    ctx.JSON(http.StatusOK, gin.H{
+        "user": gin.H{
+            "id":    user.ID,
+            "email": user.Email,
+        },
+    })
+}
