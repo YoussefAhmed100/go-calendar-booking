@@ -15,6 +15,7 @@ import (
 	"calendar-booking/internal/common/database"
 	"calendar-booking/internal/common/validator"
 	"calendar-booking/internal/modules/auth"
+	googlemodule "calendar-booking/internal/modules/google"
 )
 
 func main() {
@@ -31,6 +32,16 @@ func main() {
 
 	if err := authModule.Migrate(); err != nil {
 		log.Fatalf("auth module migration failed: %v", err)
+	}
+
+	googleModule := googlemodule.New(
+		db,
+		cfg,
+		authModule.AuthenticationMiddleware(),
+	)
+
+	if err := googleModule.Migrate(); err != nil {
+		log.Fatalf("failed to migrate Google module: %v", err)
 	}
 
 	// HTTP router
@@ -50,6 +61,7 @@ func main() {
 	api := router.Group("/api")
 
 	authModule.RegisterRoutes(api)
+	googleModule.RegisterRoutes(api)
 
 	// HTTP server
 	server := &http.Server{
