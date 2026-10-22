@@ -22,11 +22,16 @@ func New(
 	cfg *config.Config,
 	authenticationMiddleware *authmiddleware.AuthenticationMiddleware,
 ) *Module {
-	googleService := service.NewGoogleService(db, cfg)
+	oauthConfig := service.NewOAuthConfig(cfg)
+	accountStore := service.NewGoogleAccountStore(db)
+	tokenProvider := service.NewTokenProvider(accountStore, oauthConfig)
+
+	googleService := service.NewGoogleService(db, oauthConfig, accountStore)
+	calendarService := service.NewCalendarService(tokenProvider, service.NewCalendarClient())
 
 	return &Module{
 		db:                       db,
-		googleController:         controller.NewGoogleController(googleService),
+		googleController:         controller.NewGoogleController(googleService, calendarService),
 		authenticationMiddleware: authenticationMiddleware,
 	}
 }

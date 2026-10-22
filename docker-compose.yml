@@ -16,7 +16,18 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-
+  pgadmin:
+     image: dpage/pgadmin4:latest
+     container_name: calendar_booking_pgadmin
+     restart: unless-stopped
+     environment:
+       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+     ports:
+       - "5050:80"
+     depends_on:
+       db:
+         condition: service_healthy
   api:
     build: .
     container_name: calendar_booking_api
