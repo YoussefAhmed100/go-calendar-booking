@@ -4,45 +4,39 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"time"
 
-	"calendar-booking/internal/common/config"
 	"calendar-booking/internal/modules/google/model"
 
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 	"gorm.io/gorm"
 )
 
-const oauthStateExpiry = 10 * time.Minute
+const (
+	oauthStateExpiry     = 10 * time.Minute
+	oauthStateBytesCount = 32
+)
 
+// GoogleService runs the Google OAuth authorization flow.
 type GoogleService struct {
 	db          *gorm.DB
 	oauthConfig *oauth2.Config
+	accounts    *GoogleAccountStore
 }
 
-// @desc => NewGoogleService creates a new instance of GoogleService with the provided database connection and configuration.
 func NewGoogleService(
 	db *gorm.DB,
-	cfg *config.Config,
+	oauthConfig *oauth2.Config,
+	accounts *GoogleAccountStore,
 ) *GoogleService {
-	return &GoogleService{
-		db: db,
-		oauthConfig: &oauth2.Config{
-			ClientID:     cfg.GoogleClientID,
-			ClientSecret: cfg.GoogleClientSecret,
-			RedirectURL:  cfg.GoogleRedirectURL,
-			Endpoint:     google.Endpoint,
-			Scopes: []string{
-				"https://www.googleapis.com/auth/calendar.events",
-			},
-		},
-	}
+	return &GoogleService{db: db, oauthConfig: oauthConfig, accounts: accounts}
 }
 
-// GenerateAuthURL generates a Google OAuth authorization URL for a user and saves the associated state in the database.
+// GenerateAuthURL creates a Google OAuth authorization URL for the user
+// and persists the generated state so the callback can be validated.
 func (googleService *GoogleService) GenerateAuthURL(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -66,21 +60,31 @@ func (googleService *GoogleService) GenerateAuthURL(
 	return googleService.oauthConfig.AuthCodeURL(
 		stateValue,
 		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("prompt", "consent"),
 	), nil
 }
 
-func generateRandomState() (string, error) {
-	randomBytes := make([]byte, 32)
-
-	if _, err := rand.Read(randomBytes); err != nil {
-		return "", fmt.Errorf("generate random bytes: %w", err)
+// CompleteAuthorization validates the state, exchanges the code, and links the Google account.
+// It returns ErrInvalidOAuthState or ErrCodeExchangeFailed for client-side failures.
+func (googleService *GoogleService) CompleteAuthorization(
+	ctx context.Context,
+	code string,
+	stateValue string,
+) error {
+	userID, err := googleService.consumeOAuthState(ctx, stateValue)
+	if err != nil {
+		return err
 	}
 
-	return base64.RawURLEncoding.EncodeToString(randomBytes), nil
+	token, err := googleService.oauthConfig.Exchange(ctx, code)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrCodeExchangeFailed, err)
+	}
+
+	return googleService.accounts.Upsert(ctx, userID, token)
 }
 
-// ConsumeOAuthState consumes an OAuth state and returns the associated user ID.
-func (googleService *GoogleService) ConsumeOAuthState(
+func (googleService *GoogleService) consumeOAuthState(
 	ctx context.Context,
 	stateValue string,
 ) (uuid.UUID, error) {
@@ -105,11 +109,12 @@ func (googleService *GoogleService) ConsumeOAuthState(
 			return gorm.ErrRecordNotFound
 		}
 
-		return tx.
-			Where("state = ?", stateValue).
-			First(&oauthState).Error
+		return tx.Where("state = ?", stateValue).First(&oauthState).Error
 	})
 
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return uuid.Nil, ErrInvalidOAuthState
+	}
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("consume OAuth state: %w", err)
 	}
@@ -117,57 +122,12 @@ func (googleService *GoogleService) ConsumeOAuthState(
 	return oauthState.UserID, nil
 }
 
-// ExchangeCode exchanges an authorization code for an access token and refresh token.
-func (googleService *GoogleService) ExchangeCode(
-	ctx context.Context,
-	code string,
-) (*oauth2.Token, error) {
-	token, err := googleService.oauthConfig.Exchange(ctx, code)
-	if err != nil {
-		return nil, fmt.Errorf("exchange Google authorization code: %w", err)
+func generateRandomState() (string, error) {
+	randomBytes := make([]byte, oauthStateBytesCount)
+
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", fmt.Errorf("generate random bytes: %w", err)
 	}
 
-	return token, nil
-}
-
-// SaveGoogleAccount saves a Google account for a user.
-
-func (googleService *GoogleService) SaveGoogleAccount(
-	ctx context.Context,
-	userID uuid.UUID,
-	token *oauth2.Token,
-) error {
-	var account model.GoogleAccount
-
-	err := googleService.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		First(&account).Error
-
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return fmt.Errorf("find Google account: %w", err)
-	}
-
-	// Preserve the existing refresh token if Google doesn't return a new one.
-	refreshToken := token.RefreshToken
-	if refreshToken == "" && err == nil {
-		refreshToken = account.RefreshToken
-	}
-
-	if err == gorm.ErrRecordNotFound {
-		account = model.GoogleAccount{
-			ID:     uuid.New(),
-			UserID: userID,
-		}
-	}
-
-	account.AccessToken = token.AccessToken
-	account.RefreshToken = refreshToken
-	account.TokenType = token.TokenType
-	account.ExpiresAt = token.Expiry.UTC()
-
-	if err := googleService.db.WithContext(ctx).Save(&account).Error; err != nil {
-		return fmt.Errorf("save Google account: %w", err)
-	}
-
-	return nil
+	return base64.RawURLEncoding.EncodeToString(randomBytes), nil
 }

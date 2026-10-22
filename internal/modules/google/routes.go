@@ -21,6 +21,12 @@ func registerRoutes(
 	)
 
 	googleRoutes.GET(
+		"/calendars",
+		authenticationMiddleware.RequireAuthentication(),
+		googleController.Calendars,
+	)
+
+	googleRoutes.GET(
 		"/callback",
 		googleController.Callback,
 	)
