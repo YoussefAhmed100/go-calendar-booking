@@ -7,6 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// registerRoutes attaches the Google endpoints. The callback is public because Google
+// calls it without a Bearer token; every other route requires authentication.
 func registerRoutes(
 	router *gin.RouterGroup,
 	googleController *controller.GoogleController,
@@ -14,20 +16,14 @@ func registerRoutes(
 ) {
 	googleRoutes := router.Group("/google")
 
-	googleRoutes.GET(
-		"/connect",
-		authenticationMiddleware.RequireAuthentication(),
-		googleController.Connect,
-	)
+	googleRoutes.GET("/callback", googleController.Callback)
 
-	googleRoutes.GET(
-		"/calendars",
-		authenticationMiddleware.RequireAuthentication(),
-		googleController.Calendars,
-	)
-
-	googleRoutes.GET(
-		"/callback",
-		googleController.Callback,
-	)
+	protected := googleRoutes.Group("")
+	protected.Use(authenticationMiddleware.RequireAuthentication())
+	{
+		protected.GET("/connect", googleController.Connect)
+		protected.GET("/calendars", googleController.Calendars)
+		protected.GET("/calendar", googleController.SelectedCalendar)
+		protected.PUT("/calendar", googleController.SelectCalendar)
+	}
 }
