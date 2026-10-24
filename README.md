@@ -4,10 +4,6 @@ A backend API for booking appointments that stay in sync with Google Calendar.
 Users register and log in, connect their Google account, choose one calendar for bookings,
 and (in progress) create and cancel appointments that are reflected in that calendar.
 
-> **Note on the stack:** the original assessment targets Laravel + Inertia.js + React.
-> This implementation uses **Go** instead and is an API-only backend with no frontend.
-> "Visible in the app" is covered by documented API endpoints and a Postman collection.
-
 ## Tech Stack
 
 | Area | Technology |
