@@ -5,56 +5,71 @@ import (
 	"errors"
 	"fmt"
 
+	"calendar-booking/internal/modules/google/model"
+
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 )
 
+// tokenAccountStore is the part of the account store that TokenProvider needs.
+type tokenAccountStore interface {
+	FindByUserID(ctx context.Context, userID uuid.UUID) (*model.GoogleAccount, error)
+	Upsert(ctx context.Context, userID uuid.UUID, token *oauth2.Token) error
+}
+
 // TokenProvider returns a valid Google access token for a user,
 // refreshing and persisting it when it has expired.
 type TokenProvider struct {
-	accounts    *GoogleAccountStore
+	accounts    tokenAccountStore
 	oauthConfig *oauth2.Config
 }
 
-func NewTokenProvider(accounts *GoogleAccountStore, oauthConfig *oauth2.Config) *TokenProvider {
+// NewTokenProvider creates a provider that reads and saves tokens through accounts.
+func NewTokenProvider(accounts tokenAccountStore, oauthConfig *oauth2.Config) *TokenProvider {
 	return &TokenProvider{accounts: accounts, oauthConfig: oauthConfig}
 }
 
-func (provider *TokenProvider) ValidToken(
+// ValidToken returns a usable access token for the user.
+// It returns ErrGoogleAccountNotConnected when no account is linked, and
+// ErrGoogleAuthorizationRevoked when the user must reconnect Google.
+func (p *TokenProvider) ValidToken(
 	ctx context.Context,
 	userID uuid.UUID,
 ) (*oauth2.Token, error) {
-	account, err := provider.accounts.FindByUserID(ctx, userID)
+	account, err := p.accounts.FindByUserID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	storedToken := &oauth2.Token{
-		AccessToken:  account.AccessToken,
-		RefreshToken: account.RefreshToken,
-		TokenType:    account.TokenType,
-		Expiry:       account.ExpiresAt,
-	}
-
+	storedToken := tokenFromAccount(account)
 	if !storedToken.Valid() && storedToken.RefreshToken == "" {
 		return nil, ErrGoogleAuthorizationRevoked
 	}
 
-	freshToken, err := provider.oauthConfig.TokenSource(ctx, storedToken).Token()
+	freshToken, err := p.oauthConfig.TokenSource(ctx, storedToken).Token()
 	if err != nil {
 		if isInvalidGrant(err) {
 			return nil, ErrGoogleAuthorizationRevoked
 		}
-		return nil, fmt.Errorf("refresh Google token: %w", err)
+		return nil, fmt.Errorf("%w: refresh Google token: %w", ErrGoogleAPIFailure, err)
 	}
 
 	if freshToken.AccessToken != storedToken.AccessToken {
-		if err := provider.accounts.Upsert(ctx, userID, freshToken); err != nil {
+		if err := p.accounts.Upsert(ctx, userID, freshToken); err != nil {
 			return nil, err
 		}
 	}
 
 	return freshToken, nil
+}
+
+func tokenFromAccount(account *model.GoogleAccount) *oauth2.Token {
+	return &oauth2.Token{
+		AccessToken:  account.AccessToken,
+		RefreshToken: account.RefreshToken,
+		TokenType:    account.TokenType,
+		Expiry:       account.ExpiresAt,
+	}
 }
 
 func isInvalidGrant(err error) bool {

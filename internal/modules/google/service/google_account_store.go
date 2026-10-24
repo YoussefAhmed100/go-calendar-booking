@@ -18,18 +18,19 @@ type GoogleAccountStore struct {
 	db *gorm.DB
 }
 
+// NewGoogleAccountStore creates a store backed by the given database.
 func NewGoogleAccountStore(db *gorm.DB) *GoogleAccountStore {
 	return &GoogleAccountStore{db: db}
 }
 
 // FindByUserID returns ErrGoogleAccountNotConnected when the user has no linked account.
-func (store *GoogleAccountStore) FindByUserID(
+func (s *GoogleAccountStore) FindByUserID(
 	ctx context.Context,
 	userID uuid.UUID,
 ) (*model.GoogleAccount, error) {
 	var account model.GoogleAccount
 
-	err := store.db.WithContext(ctx).Where("user_id = ?", userID).First(&account).Error
+	err := s.db.WithContext(ctx).Where("user_id = ?", userID).First(&account).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrGoogleAccountNotConnected
 	}
@@ -42,7 +43,7 @@ func (store *GoogleAccountStore) FindByUserID(
 
 // Upsert creates or updates the user's Google account.
 // An empty refresh token in the incoming token keeps the stored one.
-func (store *GoogleAccountStore) Upsert(
+func (s *GoogleAccountStore) Upsert(
 	ctx context.Context,
 	userID uuid.UUID,
 	token *oauth2.Token,
@@ -61,7 +62,7 @@ func (store *GoogleAccountStore) Upsert(
 		updateColumns = append(updateColumns, "refresh_token")
 	}
 
-	err := store.db.WithContext(ctx).
+	err := s.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "user_id"}},
 			DoUpdates: clause.AssignmentColumns(updateColumns),
@@ -72,4 +73,41 @@ func (store *GoogleAccountStore) Upsert(
 	}
 
 	return nil
+}
+
+// SetSelectedCalendar stores the calendar chosen for bookings.
+// It returns ErrGoogleAccountNotConnected when the user has no linked account.
+func (s *GoogleAccountStore) SetSelectedCalendar(
+	ctx context.Context,
+	userID uuid.UUID,
+	calendarID string,
+) error {
+	result := s.db.WithContext(ctx).
+		Model(&model.GoogleAccount{}).
+		Where("user_id = ?", userID).
+		Update("selected_calendar_id", calendarID)
+	if result.Error != nil {
+		return fmt.Errorf("save selected calendar: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrGoogleAccountNotConnected
+	}
+
+	return nil
+}
+
+// SelectedCalendarID returns ErrNoCalendarSelected when the user has not chosen one yet.
+func (s *GoogleAccountStore) SelectedCalendarID(
+	ctx context.Context,
+	userID uuid.UUID,
+) (string, error) {
+	account, err := s.FindByUserID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if account.SelectedCalendarID == nil {
+		return "", ErrNoCalendarSelected
+	}
+
+	return *account.SelectedCalendarID, nil
 }

@@ -13,6 +13,7 @@ type GoogleAccount struct {
 	RefreshToken string    `gorm:"type:text"`
 	TokenType    string    `gorm:"not null"`
 	ExpiresAt    time.Time `gorm:"not null"`
+	SelectedCalendarID *string   `gorm:"type:text"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

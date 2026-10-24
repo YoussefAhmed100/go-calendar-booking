@@ -7,32 +7,36 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type tokenSource interface {
+// userTokenProvider supplies a valid Google access token for a user.
+type userTokenProvider interface {
 	ValidToken(ctx context.Context, userID uuid.UUID) (*oauth2.Token, error)
 }
 
-type calendarProvider interface {
+// calendarFetcher fetches the calendars visible to a token.
+type calendarFetcher interface {
 	ListCalendars(ctx context.Context, token *oauth2.Token) ([]Calendar, error)
 }
 
 // CalendarService lists the calendars of the Google account linked to a user.
 type CalendarService struct {
-	tokens    tokenSource
-	calendars calendarProvider
+	tokens    userTokenProvider
+	calendars calendarFetcher
 }
 
-func NewCalendarService(tokens tokenSource, calendars calendarProvider) *CalendarService {
+// NewCalendarService creates a service that lists calendars using the user's token.
+func NewCalendarService(tokens userTokenProvider, calendars calendarFetcher) *CalendarService {
 	return &CalendarService{tokens: tokens, calendars: calendars}
 }
 
-func (service *CalendarService) ListCalendars(
+// ListCalendars returns the calendars available to the user's linked Google account.
+func (s *CalendarService) ListCalendars(
 	ctx context.Context,
 	userID uuid.UUID,
 ) ([]Calendar, error) {
-	token, err := service.tokens.ValidToken(ctx, userID)
+	token, err := s.tokens.ValidToken(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
 
-	return service.calendars.ListCalendars(ctx, token)
+	return s.calendars.ListCalendars(ctx, token)
 }
