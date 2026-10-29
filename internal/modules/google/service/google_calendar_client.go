@@ -100,3 +100,80 @@ func isAuthorizationFailure(apiErr *googleapi.Error) bool {
 
 	return false
 }
+
+
+// CreateEvent creates the event with the caller-chosen ID.
+// A 409 means an earlier attempt already created it, which counts as success.
+func (c *CalendarClient) CreateEvent(
+	ctx context.Context,
+	token *oauth2.Token,
+	calendarID string,
+	event CalendarEvent,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, googleRequestTimeout)
+	defer cancel()
+
+	calendarService, err := newCalendarService(ctx, token)
+	if err != nil {
+		return err
+	}
+
+	body := &calendar.Event{
+		Id:          event.ID,
+		Summary:     event.Title,
+		Description: event.Description,
+		Start:       &calendar.EventDateTime{DateTime: event.Start.Format(time.RFC3339), TimeZone: event.TimeZone},
+		End:         &calendar.EventDateTime{DateTime: event.End.Format(time.RFC3339), TimeZone: event.TimeZone},
+	}
+
+	_, err = calendarService.Events.Insert(calendarID, body).Context(ctx).Do()
+	if hasStatusCode(err, http.StatusConflict) {
+		return nil
+	}
+	if err != nil {
+		return translateGoogleError(err)
+	}
+
+	return nil
+}
+
+// DeleteEvent deletes the event. An event that is already gone (404 or 410) counts as success.
+func (c *CalendarClient) DeleteEvent(
+	ctx context.Context,
+	token *oauth2.Token,
+	calendarID string,
+	eventID string,
+) error {
+	ctx, cancel := context.WithTimeout(ctx, googleRequestTimeout)
+	defer cancel()
+
+	calendarService, err := newCalendarService(ctx, token)
+	if err != nil {
+		return err
+	}
+
+	err = calendarService.Events.Delete(calendarID, eventID).Context(ctx).Do()
+	if hasStatusCode(err, http.StatusNotFound, http.StatusGone) {
+		return nil
+	}
+	if err != nil {
+		return translateGoogleError(err)
+	}
+
+	return nil
+}
+
+func hasStatusCode(err error, codes ...int) bool {
+	var apiErr *googleapi.Error
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+
+	for _, code := range codes {
+		if apiErr.Code == code {
+			return true
+		}
+	}
+
+	return false
+}
