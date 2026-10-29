@@ -24,6 +24,12 @@ type Config struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleRedirectURL  string
+
+	BookingTimezone    string // IANA zone the working hours are defined in
+	BookingDayStart    string // "HH:MM"
+	BookingDayEnd      string // "HH:MM"
+	BookingWorkDays    string // comma-separated, e.g. "sun,mon,tue,wed,thu"
+	BookingSlotMinutes int
 }
 
 func Load() *Config {
@@ -33,6 +39,11 @@ func Load() *Config {
 	expiry, err := strconv.Atoi(getEnv("JWT_EXPIRY_HOURS", "24"))
 	if err != nil {
 		log.Fatalf("invalid JWT_EXPIRY_HOURS: %v", err)
+	}
+
+	slotMinutes, err := strconv.Atoi(getEnv("BOOKING_SLOT_MINUTES", "30"))
+	if err != nil {
+		log.Fatalf("invalid BOOKING_SLOT_MINUTES: %v", err)
 	}
 
 	return &Config{
@@ -48,9 +59,23 @@ func Load() *Config {
 		JWTSecret:      mustGetEnv("JWT_SECRET"),
 		JWTExpiryHours: expiry,
 
+
+
 		GoogleClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/google/callback"),
+
+
+		BookingTimezone:    getEnv("BOOKING_TIMEZONE", "Africa/Cairo"),
+		BookingDayStart:    getEnv("BOOKING_DAY_START", "09:00"),
+		BookingDayEnd:      getEnv("BOOKING_DAY_END", "17:00"),
+		BookingWorkDays:    getEnv("BOOKING_WORK_DAYS", "sun,mon,tue,wed,thu"),
+		BookingSlotMinutes: slotMinutes,
+
+
+
+
+
 	}
 }
 

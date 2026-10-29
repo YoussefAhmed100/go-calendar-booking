@@ -11,11 +11,14 @@ import (
 	"calendar-booking/internal/modules/google/service"
 )
 
-// Module wires the Google integration: OAuth connection, calendar listing, and calendar selection.
+// Module wires the Google integration: OAuth connection, calendar listing,
+// calendar selection, and event writing for other modules.
 type Module struct {
 	db                       *gorm.DB
 	googleController         *controller.GoogleController
 	authenticationMiddleware *authmiddleware.AuthenticationMiddleware
+	eventService             *service.EventService
+	accounts                 *service.GoogleAccountStore
 }
 
 // New builds the Google module and its dependencies.
@@ -28,10 +31,12 @@ func New(
 	accountStore := service.NewGoogleAccountStore(db)
 	oauthStateStore := service.NewOAuthStateStore(db)
 	tokenProvider := service.NewTokenProvider(accountStore, oauthConfig)
+	calendarClient := service.NewCalendarClient()
 
 	googleService := service.NewGoogleService(oauthStateStore, accountStore, oauthConfig)
-	calendarService := service.NewCalendarService(tokenProvider, service.NewCalendarClient())
+	calendarService := service.NewCalendarService(tokenProvider, calendarClient)
 	selectionService := service.NewCalendarSelectionService(calendarService, accountStore)
+	eventService := service.NewEventService(tokenProvider, calendarClient)
 
 	return &Module{
 		db: db,
@@ -41,6 +46,8 @@ func New(
 			selectionService,
 		),
 		authenticationMiddleware: authenticationMiddleware,
+		eventService:             eventService,
+		accounts:                 accountStore,
 	}
 }
 
@@ -60,3 +67,9 @@ func (m *Module) RegisterRoutes(router *gin.RouterGroup) {
 		m.authenticationMiddleware,
 	)
 }
+
+// Events exposes event writing to other modules.
+func (m *Module) Events() *service.EventService { return m.eventService }
+
+// Accounts exposes the linked Google account store to other modules.
+func (m *Module) Accounts() *service.GoogleAccountStore { return m.accounts }
