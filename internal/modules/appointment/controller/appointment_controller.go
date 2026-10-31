@@ -1,8 +1,7 @@
 package controller
 
 import (
-	"errors"
-	"log"
+
 	"net/http"
 	"strings"
 
@@ -12,7 +11,7 @@ import (
 	"calendar-booking/internal/modules/appointment/service"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+	
 )
 
 const (
@@ -20,25 +19,7 @@ const (
 	maxIdempotencyKeyLength = 255
 )
 
-// errorResponses maps domain errors to HTTP responses. The first match wins.
-var errorResponses = []struct {
-	err     error
-	status  int
-	message string
-}{
-	{service.ErrInvalidTimezone, http.StatusBadRequest, "invalid timezone, use an IANA name like Africa/Cairo"},
-	{service.ErrInvalidDate, http.StatusBadRequest, "invalid date, expected YYYY-MM-DD"},
-	{service.ErrInvalidDuration, http.StatusUnprocessableEntity, "duration must be a multiple of the slot length and at most 8 hours"},
-	{service.ErrStartInPast, http.StatusUnprocessableEntity, "appointment start is in the past"},
-	{service.ErrOutsideWorkingHours, http.StatusUnprocessableEntity, "appointment is outside working hours or not aligned to a slot"},
-	{service.ErrIdempotencyConflict, http.StatusUnprocessableEntity, "idempotency key was already used with different data"},
-	{service.ErrAppointmentNotFound, http.StatusNotFound, "appointment not found"},
-	{service.ErrSlotUnavailable, http.StatusConflict, "the requested time slot is not available"},
-	{service.ErrNoCalendarSelected, http.StatusConflict, "no calendar selected, choose one first"},
-	{service.ErrCalendarNotConnected, http.StatusConflict, "google account not connected, connect it first"},
-	{service.ErrCalendarAuthorizationRevoked, http.StatusConflict, "google authorization expired or revoked, reconnect your account"},
-	{service.ErrCalendarSyncFailed, http.StatusBadGateway, "failed to sync with Google Calendar, retry the same request"},
-}
+
 
 // AppointmentController handles the appointments HTTP endpoints.
 type AppointmentController struct {
@@ -174,34 +155,6 @@ func (h *AppointmentController) Cancel(c *gin.Context) {
 
 // userAndAppointmentID reads the authenticated user and the :id path parameter.
 // On failure it writes the response itself and returns false.
-func userAndAppointmentID(c *gin.Context) (uuid.UUID, uuid.UUID, bool) {
-	userID, ok := commonmiddleware.AuthenticatedUserID(c)
-	if !ok {
-		return uuid.Nil, uuid.Nil, false
-	}
 
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid appointment id")
-		return uuid.Nil, uuid.Nil, false
-	}
 
-	return userID, id, true
-}
 
-// handleError maps domain errors to HTTP responses.
-// Server-side failures are logged and never exposed to the client.
-func handleError(c *gin.Context, operation string, err error) {
-	for _, mapped := range errorResponses {
-		if errors.Is(err, mapped.err) {
-			if mapped.status >= http.StatusInternalServerError {
-				log.Printf("appointments %s: %v", operation, err)
-			}
-			response.Error(c, mapped.status, mapped.message)
-			return
-		}
-	}
-
-	log.Printf("appointments %s: %v", operation, err)
-	response.Error(c, http.StatusInternalServerError, "failed to process appointment request")
-}
